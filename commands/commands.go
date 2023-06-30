@@ -15,15 +15,16 @@ package commands
 
 import (
 	"github.com/bep/simplecobra"
+	"go.uber.org/zap"
 )
 
 // newExec wires up all of Hugo's CLI.
-func newExec() (*simplecobra.Exec, error) {
+func newExec(logger *zap.Logger) (*simplecobra.Exec, error) {
 	rootCmd := &rootCommand{
 		commands: []simplecobra.Commander{
 			newVersionCmd(),
 			newEnvCommand(),
-			newServerCommand(),
+			newServerCommand(logger),
 			newDeployCommand(),
 			newConfigCommand(),
 			newNewCommand(),

@@ -29,8 +29,12 @@ import (
 	"time"
 
 	jww "github.com/spf13/jwalterweatherman"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 
 	"go.uber.org/automaxprocs/maxprocs"
+	"go.uber.org/zap"
 
 	"github.com/bep/clock"
 	"github.com/bep/lazycache"
@@ -47,6 +51,7 @@ import (
 	"github.com/gohugoio/hugo/helpers"
 	"github.com/gohugoio/hugo/hugofs"
 	"github.com/gohugoio/hugo/hugolib"
+	"github.com/gohugoio/hugo/telemetry"
 	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 )
@@ -59,11 +64,44 @@ var (
 func Execute(args []string) error {
 	// Default GOMAXPROCS to be CPU limit aware, still respecting GOMAXPROCS env.
 	maxprocs.Set()
-	x, err := newExec()
+
+	logger, err := telemetry.NewLogger()
 	if err != nil {
 		return err
 	}
-	args = mapLegacyArgs(args)
+
+	// inicializacao do sdk
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	tp, err := telemetry.NewTracerProvider()
+	if err != nil {
+		logger.Fatal("falha ao inicializar os rastreadores", zap.Error(err))
+		return err
+	}
+	defer tp.Shutdown(ctx)
+	defer telemetry.Shutdown(ctx)
+	otel.SetTracerProvider(tp)
+
+	tm, err := telemetry.NewMeterProvider()
+	if err != nil {
+		logger.Fatal("falha ao inicializar medidores", zap.Error(err))
+		return err
+	}
+	defer tp.Shutdown(ctx)
+	otel.SetMeterProvider(tm)
+
+	// trecho que representa o bootstrap
+	tr := otel.Tracer("bootstrap")
+	ctx, sp := tr.Start(ctx, "bootstrap")
+	defer sp.End()
+
+	x, err := newExec(logger)
+	if err != nil {
+		logger.Fatal("falha ao inicializar comandos disponiveis", zap.Error(err))
+		return err
+	}
+
+	args = mapLegacyArgs(ctx, args)
 	cd, err := x.Execute(context.Background(), args)
 	if err != nil {
 		if err == errHelp {
@@ -76,6 +114,10 @@ func Execute(args []string) error {
 			cd.CobraCommand.Help()
 			fmt.Println()
 		}
+
+		telemetry.InfoCtx(ctx, "falha ao executar comando", zap.Error(err))
+		sp.RecordError(err)
+		sp.SetStatus(codes.Error, err.Error())
 	}
 	return err
 }
@@ -612,10 +654,16 @@ func (c *simpleCommand) PreRun(cd, runner *simplecobra.Commandeer) error {
 	return nil
 }
 
-func mapLegacyArgs(args []string) []string {
+func mapLegacyArgs(ctx context.Context, args []string) []string {
+	tr := telemetry.GetTracer()
+	_, sp := tr.Start(ctx, "mapLegacyArgs")
+	sp.SetAttributes(attribute.Int("numArgs", len(args)))
+	defer sp.End()
+
 	if len(args) > 1 && args[0] == "new" && !hstrings.EqualAny(args[1], "site", "theme", "content") {
 		// Insert "content" as the second argument
 		args = append(args[:1], append([]string{"content"}, args[1:]...)...)
 	}
 	return args
+
 }

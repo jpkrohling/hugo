@@ -32,6 +32,7 @@ import (
 	"sync/atomic"
 
 	"github.com/bep/mclib"
+	"go.uber.org/zap"
 
 	"os/signal"
 	"path"
@@ -56,6 +57,7 @@ import (
 	"github.com/gohugoio/hugo/hugolib"
 	"github.com/gohugoio/hugo/hugolib/filesystems"
 	"github.com/gohugoio/hugo/livereload"
+	"github.com/gohugoio/hugo/telemetry"
 	"github.com/gohugoio/hugo/tpl"
 	"github.com/gohugoio/hugo/transform"
 	"github.com/gohugoio/hugo/transform/livereloadinject"
@@ -102,11 +104,13 @@ func newHugoBuilder(r *rootCommand, s *serverCommand, onConfigLoaded ...func(rel
 	}
 }
 
-func newServerCommand() *serverCommand {
+func newServerCommand(logger *zap.Logger) *serverCommand {
 	// Flags.
 	var uninstall bool
 
 	var c *serverCommand
+
+	telemetry.FooCounter.Add(context.Background(), 1)
 
 	c = &serverCommand{
 		quit: make(chan bool),

@@ -22,6 +22,9 @@ import (
 
 func main() {
 	log.SetFlags(0)
+
+	// inicializa o SDK de opentelemetry
+
 	err := commands.Execute(os.Args[1:])
 	if err != nil {
 		log.Fatalf("Error: %s", err)
